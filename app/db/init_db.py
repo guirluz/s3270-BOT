@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.db.models.upload import Upload
 from app.db.models.record import Record
 from app.db.models.log import ProcessingLog
+from app.db.models.task import TaskExecution
 
 
 def init_db():

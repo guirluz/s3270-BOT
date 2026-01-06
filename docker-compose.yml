@@ -51,6 +51,38 @@ services:
       - internal_net
       - default
 
+  redis:
+    image: redis:7-alpine
+    container_name: s3270_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - internal_net
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: s3270_celery_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_started
+      postgres_db:
+        condition: service_healthy
+    command: >
+      celery
+      -A app.celery_app.celery_app
+      worker
+      --loglevel=info
+    volumes:
+      - .:/app
+    networks:
+      - internal_net
+
 volumes:
   pg_data:
 

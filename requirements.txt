@@ -3,3 +3,7 @@ uvicorn[standard]
 pydantic
 sqlalchemy
 psycopg2-binary
+python-dotenv
+
+celery
+redis
