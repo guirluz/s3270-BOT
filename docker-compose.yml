@@ -49,7 +49,7 @@ services:
       start_period: 30s
     networks:
       - internal_net
-      - default
+      - public_net
 
   redis:
     image: redis:7-alpine
@@ -89,3 +89,5 @@ volumes:
 networks:
   internal_net:
     internal: true
+  public_net:
+    driver: bridge

@@ -5,41 +5,33 @@ Define tareas asíncronas ejecutadas por Celery.
 
 Responsabilidades:
 - Ejecutar procesos largos del bot 3270
-- Reportar estado y progreso
+- Actualizar estado en PostgreSQL
 - Retornar resultados estructurados
 
 Este módulo NO depende de FastAPI.
-Tareas Celery con persistencia real en PostgreSQL.
 """
 
 import time
-from celery import shared_task
-
+from app.celery_app import celery_app
 from app.db.session import SessionLocal
-from app.db.models.task import TaskExecution
+from app.tasks.task_repository import update_task
 
 
-@shared_task(bind=True)
+@celery_app.task(bind=True, name="login_bot_task")
 def login_bot_task(self, username: str, password: str) -> dict:
     """
-    Tarea asíncrona de login 3270 con persistencia en DB.
+    Tarea asíncrona de login 3270 con Redis + PostgreSQL.
     """
 
     db = SessionLocal()
 
     try:
-        # ----------------------------------
-        # Marcar RUNNING
-        # ----------------------------------
-        task = db.query(TaskExecution).filter(
-            TaskExecution.task_id == self.request.id
-        ).first()
+        update_task(
+            db=db,
+            task_id=self.request.id,
+            status="RUNNING"
+        )
 
-        if task:
-            task.status = "RUNNING"
-            db.commit()
-
-        # Simular conexión
         time.sleep(2)
 
         if not username or not password:
@@ -48,14 +40,16 @@ def login_bot_task(self, username: str, password: str) -> dict:
         time.sleep(2)
 
         if username != "admin" or password != "admin":
-            result = {"status": "FAILED", "message": "Invalid credentials"}
-
-            if task:
-                task.status = "FAILED"
-                task.error = "Invalid credentials"
-                db.commit()
-
-            return result
+            update_task(
+                db=db,
+                task_id=self.request.id,
+                status="FAILED",
+                error="Invalid credentials"
+            )
+            return {
+                "status": "FAILED",
+                "message": "Invalid credentials"
+            }
 
         time.sleep(2)
 
@@ -65,18 +59,22 @@ def login_bot_task(self, username: str, password: str) -> dict:
             "screen": "MAIN MENU"
         }
 
-        if task:
-            task.status = "DONE"
-            task.result = str(result)
-            db.commit()
+        update_task(
+            db=db,
+            task_id=self.request.id,
+            status="DONE",
+            result=str(result)
+        )
 
         return result
 
     except Exception as exc:
-        if task:
-            task.status = "FAILED"
-            task.error = str(exc)
-            db.commit()
+        update_task(
+            db=db,
+            task_id=self.request.id,
+            status="FAILED",
+            error=str(exc)
+        )
         raise
 
     finally:

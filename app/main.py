@@ -15,9 +15,11 @@ Este archivo NO contiene lógica 3270 ni lógica de negocio.
 from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from celery.result import AsyncResult
 
 from app.bot.session import Socket3270Session
 from app.bot.actions import LoginAction
@@ -28,6 +30,10 @@ from app.tasks.bot_tasks import login_bot_task
 from app.celery_app import celery_app
 from app.db.models.task import TaskExecution
 from app.db.session import SessionLocal
+
+# IMPORTS CLAVE PARA CREAR TABLAS
+from app.db.base import Base
+from app.db.session import engine
 
 
 # ======================================================
@@ -42,7 +48,14 @@ app = FastAPI(
 
 
 # ======================================================
-# Registro de routers (DESPUÉS de crear app)
+# CREAR TABLAS AUTOMÁTICAMENTE (SOLO DEV)
+# ======================================================
+
+Base.metadata.create_all(bind=engine)
+
+
+# ======================================================
+# Registro de routers
 # ======================================================
 
 app.include_router(uploads_router)
@@ -53,18 +66,14 @@ app.include_router(uploads_router)
 # ======================================================
 
 class LoginRequest(BaseModel):
-    """
-    Modelo de entrada para el endpoint de login.
-    """
     user: str
     password: str
 
+
 class AsyncLoginRequest(BaseModel):
-    """
-    Modelo de entrada para lanzar login asíncrono.
-    """
     user: str
     password: str
+
 
 # ======================================================
 # Endpoints
@@ -153,21 +162,13 @@ def start_login_task(request: AsyncLoginRequest):
         # Validaciones de entrada
         # -------------------------------------------------
         if not request.user or not request.user.strip():
-            return build_response(
-                http_code=400,
-                message="User is required",
-                data=None
-            )
+            return build_response(400, "User is required", None)
 
         if not request.password or not request.password.strip():
-            return build_response(
-                http_code=400,
-                message="Password is required",
-                data=None
-            )
+            return build_response(400, "Password is required", None)
 
         # -------------------------------------------------
-        # Encolar tarea Celery
+        # Encolar tarea en Celery
         # -------------------------------------------------
         task = login_bot_task.delay(
             username=request.user,
@@ -175,18 +176,18 @@ def start_login_task(request: AsyncLoginRequest):
         )
 
         # -------------------------------------------------
-        # Registrar tarea en base de datos
+        # Registrar tarea en PostgreSQL (estado inicial)
         # -------------------------------------------------
-        db = SessionLocal()
+        db = next(get_db())
 
-        task_db = TaskExecution(
+        from app.tasks.task_repository import create_task
+
+        create_task(
+            db=db,
             task_id=task.id,
             task_type="LOGIN",
-            status="PENDING"
+            status="PENDING",
         )
-
-        db.add(task_db)
-        db.commit()
 
         # -------------------------------------------------
         # Respuesta inmediata (HTTP 202)
@@ -201,9 +202,6 @@ def start_login_task(request: AsyncLoginRequest):
         )
 
     except Exception as exc:
-        # -------------------------------------------------
-        # Error controlado
-        # -------------------------------------------------
         return build_response(
             http_code=500,
             message="Failed to start login task",
@@ -211,64 +209,80 @@ def start_login_task(request: AsyncLoginRequest):
         )
 
     finally:
-        # -------------------------------------------------
-        # Cierre seguro de sesión DB
-        # -------------------------------------------------
         if db:
             db.close()
+
 
 #---------------------------------------
 
 @app.get("/tasks/{task_id}")
-def get_task_status(task_id: str):
+def get_task_status(task_id: str, db: Session = Depends(get_db)):
     """
-    Consulta estado de una tarea desde PostgreSQL.
+    Consulta el estado actual de una tarea asíncrona.
     """
 
-    db = SessionLocal()
+    task = db.query(TaskExecution).filter(
+        TaskExecution.task_id == task_id
+    ).first()
 
-    try:
-        task = db.query(TaskExecution).filter(
-            TaskExecution.task_id == task_id
-        ).first()
+    if not task:
+        return build_response(
+            http_code=404,
+            message="Task not found",
+            data=None
+        )
 
-        if not task:
-            return build_response(404, "Task not found", None)
+    # ------------------------------
+    # Tarea aún en progreso
+    # ------------------------------
+    if task.status in ("PENDING", "RUNNING"):
+        return build_response(
+            http_code=202,
+            message="Task still in progress",
+            data={
+                "task_id": task.task_id,
+                "status": task.status
+            }
+        )
 
-        if task.status in ("PENDING", "RUNNING"):
-            return build_response(
-                202,
-                "Task in progress",
-                {
-                    "task_id": task.task_id,
-                    "status": task.status
-                }
-            )
+    # ------------------------------
+    # Tarea finalizada correctamente
+    # ------------------------------
+    if task.status == "DONE":
+        return build_response(
+            http_code=200,
+            message="Task completed successfully",
+            data={
+                "task_id": task.task_id,
+                "status": task.status,
+                "result": task.result
+            }
+        )
 
-        if task.status == "DONE":
-            return build_response(
-                200,
-                "Task completed",
-                {
-                    "task_id": task.task_id,
-                    "status": task.status,
-                    "result": task.result
-                }
-            )
+    # ------------------------------
+    # Tarea fallida
+    # ------------------------------
+    if task.status == "FAILED":
+        return build_response(
+            http_code=200,
+            message="Task completed with business error",
+            data={
+                "task_id": task.task_id,
+                "status": task.status,
+                "error": task.error
+            }
+        )
 
-        if task.status == "FAILED":
-            return build_response(
-                500,
-                "Task failed",
-                {
-                    "task_id": task.task_id,
-                    "status": task.status,
-                    "error": task.error
-                }
-            )
 
-        return build_response(500, "Unknown state", None)
-
-    finally:
-        db.close()
+    # ------------------------------
+    # Estado desconocido (no debería pasar)
+    # ------------------------------
+    return build_response(
+        http_code=500,
+        message="Unknown task state",
+        data={
+            "task_id": task.task_id,
+            "status": task.status
+        }
+    )
 

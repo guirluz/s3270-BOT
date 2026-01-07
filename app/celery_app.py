@@ -2,15 +2,7 @@
 celery_app.py
 
 Configuración central de Celery para el proyecto s3270-bot.
-
-Responsabilidades:
-- Inicializar la instancia de Celery
-- Conectar con Redis como broker y backend
-- Definir serialización segura
-- Permitir auto-descubrimiento de tareas
-
-Este archivo NO define tareas.
-Solo define la infraestructura.
+Fuerza el uso de Redis como broker y backend.
 """
 
 import os
@@ -18,51 +10,50 @@ from celery import Celery
 from dotenv import load_dotenv
 
 # ------------------------------------------------------
-# Cargar variables de entorno (.env)
+# Cargar variables de entorno
 # ------------------------------------------------------
 load_dotenv()
 
-# ------------------------------------------------------
-# Variables de conexión a Redis
-# ------------------------------------------------------
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 
-# Broker y backend de Celery
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
 # ------------------------------------------------------
-# Crear instancia de Celery
+# Crear instancia de Celery (FORZANDO Redis)
 # ------------------------------------------------------
 celery_app = Celery(
     "s3270_bot",
     broker=REDIS_URL,
     backend=REDIS_URL,
+    include=["app.tasks.bot_tasks"],  # 👈 fuerza carga explícita
 )
 
 # ------------------------------------------------------
-# Configuración global de Celery
+# CONFIGURACIÓN CRÍTICA (ANTI-AMQP)
 # ------------------------------------------------------
 celery_app.conf.update(
-    # Serialización segura (JSON)
+    broker_url=REDIS_URL,
+    result_backend=REDIS_URL,
+
+    # 🔥 ESTO ES LO QUE SOLUCIONA TODO
+    broker_transport="redis",
+    result_backend_transport="redis",
+
+    # Seguridad / serialización
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
 
-    # Zona horaria
     timezone="UTC",
     enable_utc=True,
 
-    # Manejo de tareas
     task_track_started=True,
-    task_time_limit=60 * 10,      # 10 minutos máximo por tarea
-    task_soft_time_limit=60 * 9,  # aviso previo
+    task_time_limit=600,
 )
 
 # ------------------------------------------------------
-# Auto-descubrimiento de tareas
+# Autodiscover desactivado (evita ambigüedad)
 # ------------------------------------------------------
-# Celery buscará tareas en app/tasks/*.py
-celery_app.autodiscover_tasks([
-    "app.tasks"
-])
+# celery_app.autodiscover_tasks(["app.tasks"])
+
