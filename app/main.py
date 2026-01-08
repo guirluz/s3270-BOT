@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from app.bot.session import Socket3270Session
-from app.bot.actions import LoginAction
+from app.bot.actions import LoginScreenAction
 from app.utils.responses import build_response
 from app.config.database import get_db
 from app.api.uploads import router as uploads_router

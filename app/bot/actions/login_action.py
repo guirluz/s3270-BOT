@@ -1,7 +1,7 @@
 """
 login_action.py
 
-Acción para la pantalla de login 3270.
+Acción asociada a la pantalla de login 3270.
 """
 
 from app.bot.actions.base import ScreenAction
@@ -9,11 +9,23 @@ from app.bot.actions.base import ScreenAction
 
 class LoginScreenAction(ScreenAction):
     """
-    Ingresa usuario y contraseña en pantalla LOGIN.
+    Action para enviar usuario y contraseña en la pantalla LOGIN.
     """
 
     def execute(self, username: str, password: str):
-        self.session.send_text(username, row=5, col=20)
-        self.session.send_text(password, row=6, col=20)
+        """
+        Ejecuta el login sobre la sesión 3270.
+        """
+
+        if not username or not password:
+            raise ValueError("Username and password required")
+
+        # Escribir usuario
+        self.session.write_at(row=10, col=20, text=username)
+
+        # Escribir contraseña
+        self.session.write_at(row=11, col=20, text=password)
+
+        # Enviar Enter
         self.session.send_enter()
 

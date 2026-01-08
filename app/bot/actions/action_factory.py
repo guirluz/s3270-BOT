@@ -1,25 +1,23 @@
 """
 action_factory.py
 
-Devuelve la acción correcta según tipo de pantalla.
+Factory responsable de instanciar acciones
+según el tipo de pantalla detectado.
 """
 
-from app.bot.actions.login_action import LoginScreenAction
-from app.bot.actions.login_failed_action import LoginFailedAction
-from app.bot.actions.main_menu_action import MainMenuAction
+from app.bot.actions.action_registry import ActionRegistry
 
 
 class ActionFactory:
+    """
+    Crea instancias de acciones según la pantalla.
+    """
 
     @staticmethod
     def get_action(screen_type: str, session):
-        if screen_type == "LOGIN":
-            return LoginScreenAction(session)
+        action_class = ActionRegistry.get_action_class(screen_type)
 
-        if screen_type == "LOGIN_FAILED":
-            return LoginFailedAction(session)
+        if not action_class:
+            return None
 
-        if screen_type == "MAIN_MENU":
-            return MainMenuAction(session)
-
-        return None
+        return action_class(session)

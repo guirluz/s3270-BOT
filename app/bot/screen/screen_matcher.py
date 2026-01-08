@@ -2,17 +2,22 @@
 screen_matcher.py
 
 Responsable de identificar el tipo de pantalla 3270
-basándose en el texto recibido.
+basándose en el texto recibido desde la sesión.
 """
 
 class ScreenMatcher:
     """
-    Detecta qué pantalla 3270 está activa.
+    Detecta qué pantalla 3270 está activa a partir del texto completo.
     """
 
     def detect(self, screen_text: str) -> str:
         """
         Devuelve un identificador lógico de pantalla.
+
+        Posibles valores:
+        - LOGIN
+        - LOGIN_FAILED
+        - UNKNOWN
         """
 
         if not screen_text:
@@ -21,40 +26,29 @@ class ScreenMatcher:
         text = screen_text.upper()
 
         # --------------------------------
-        # LOGIN FALLIDO (alta prioridad)
+        # LOGIN FALLIDO (prioridad alta)
         # --------------------------------
-        if any(keyword in text for keyword in [
+        if any(keyword in text for keyword in (
             "INVALID",
             "ERROR",
             "NOT AUTHORIZED",
-            "INCORRECT"
-        ]):
+            "INCORRECT",
+        )):
             return "LOGIN_FAILED"
 
         # --------------------------------
-        # LOGIN
+        # PANTALLA DE LOGIN
         # --------------------------------
-        if any(keyword in text for keyword in [
+        if any(keyword in text for keyword in (
             "USER",
             "USERNAME",
             "PASSWORD",
             "LOGON",
-            "SIGN ON"
-        ]):
+            "SIGN ON",
+        )):
             return "LOGIN"
 
         # --------------------------------
-        # MENÚ PRINCIPAL
-        # --------------------------------
-        if any(keyword in text for keyword in [
-            "MAIN MENU",
-            "OPTIONS",
-            "COMMAND",
-            "SELECTION"
-        ]):
-            return "MAIN_MENU"
-
-        # --------------------------------
-        # DESCONOCIDO
+        # DESCONOCIDA (por ahora)
         # --------------------------------
         return "UNKNOWN"
